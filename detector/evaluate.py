@@ -2,6 +2,7 @@
 
 import json
 import time
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -73,18 +74,47 @@ def evaluate() -> None:
         json.dump(thresholds, file, indent=2)
 
     print(f"Test image AUROC: {image_auroc:.4f}")
-    print("AUROC by defect type (one type versus all other test images):")
+    print("AUROC by defect type (that defect type versus good test images):")
+    good_records = [record for record in test_records if record[1] == "good"]
     defect_types = sorted({kind for _, kind, _ in test_records if kind != "good"})
     for defect_type in defect_types:
-        type_labels = [int(kind == defect_type) for _, kind, _ in test_records]
-        if len(set(type_labels)) < 2:
+        comparison_records = good_records + [
+            record for record in test_records if record[1] == defect_type
+        ]
+        type_labels = [int(kind == defect_type) for _, kind, _ in comparison_records]
+        type_scores = [score for _, _, score in comparison_records]
+        if not good_records or len(set(type_labels)) < 2:
             print(f"  {defect_type}: unavailable (needs positive and negative images)")
         else:
-            print(f"  {defect_type}: {roc_auc_score(type_labels, scores):.4f}")
+            print(f"  {defect_type}: {roc_auc_score(type_labels, type_scores):.4f}")
 
     print(f"Low threshold (99th percentile of good validation scores): {low_threshold:.6f}")
     print(f"High threshold (robust upper boundary): {high_threshold:.6f}")
     print(f"Average scoring time: {average_seconds:.4f} seconds/image")
+
+    counts_by_type: dict[str, Counter[str]] = defaultdict(Counter)
+    missed_defects = 0
+    false_alarms = 0
+    for _, defect_type, score in test_records:
+        decision = decision_for_score(score, low_threshold, high_threshold)
+        counts_by_type[defect_type][decision] += 1
+        if defect_type != "good" and decision != "defect":
+            missed_defects += 1
+        elif defect_type == "good" and decision == "defect":
+            false_alarms += 1
+
+    print("Test image decisions by type:")
+    print(f"  {'Type':<20} {'Normal':>8} {'Uncertain':>10} {'Defect':>8} {'Total':>8}")
+    for image_type in sorted(counts_by_type):
+        counts = counts_by_type[image_type]
+        total = sum(counts.values())
+        print(
+            f"  {image_type:<20} {counts['normal']:>8} "
+            f"{counts['uncertain']:>10} {counts['defect']:>8} {total:>8}"
+        )
+    print(f"Missed defects (not labelled defect): {missed_defects}")
+    print(f"False alarms (good images labelled defect): {false_alarms}")
+
     print("Test image decisions:")
     for path, defect_type, score in test_records:
         decision = decision_for_score(score, low_threshold, high_threshold)
