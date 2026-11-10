@@ -1,0 +1,11 @@
+anomalib
+torch
+torchvision
+faiss-cpu
+streamlit
+langgraph
+chromadb
+opencv-python
+scikit-learn
+pandas
+matplotlib
