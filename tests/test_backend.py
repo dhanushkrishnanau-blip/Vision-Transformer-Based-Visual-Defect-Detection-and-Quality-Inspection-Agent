@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent.db import InMemoryDB
+import backend.main as backend_main
 from backend.main import create_app
 
 
@@ -103,6 +104,36 @@ def test_health_and_overview(client: TestClient) -> None:
     assert overview.json()["open_tickets"] == 1
     assert overview.json()["pending_reviews"] == 2
     assert "low_threshold" in overview.json()["thresholds"]
+
+
+def test_legacy_unreviewed_agent_placeholder_is_pending() -> None:
+    db = InMemoryDB()
+    inspection = db.upsert_inspection(
+        {
+            "image_path": "bottle/test/good/002.png",
+            "heatmap_path": "good/002.png",
+            "score": 0.6,
+            "decision": "uncertain",
+        }
+    )
+    db.add_review(
+        {
+            "inspection_id": inspection["id"],
+            "reason": "Needs manual review.",
+            "reviewer_label": "quality_control",
+            "notes": "",
+            "reviewed_at": None,
+        }
+    )
+    client = TestClient(create_app(db))
+
+    assert len(client.get("/api/reviews?pending=true").json()) == 1
+    assert client.get("/api/overview").json()["pending_reviews"] == 1
+
+    # The same legacy label is not pending after a reviewer timestamp exists.
+    db.reviews[0]["reviewed_at"] = "2026-11-10T00:00:00Z"
+    assert client.get("/api/reviews?pending=true").json() == []
+    assert client.get("/api/overview").json()["pending_reviews"] == 0
 
 
 def test_offline_mode_seeds_database_from_demo_csv(monkeypatch) -> None:
@@ -205,3 +236,15 @@ def test_image_streams_and_path_traversal_is_rejected(client: TestClient) -> Non
     unsafe_heatmap = client.get("/api/images/heatmap/3")
     assert unsafe_original.status_code == 404
     assert unsafe_heatmap.status_code == 404
+
+
+def test_backend_serves_frontend_index_and_fallback(monkeypatch, tmp_path) -> None:
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><title>InspectAI test frontend</title>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(backend_main, "FRONTEND_DIST", tmp_path)
+    client = TestClient(create_app(InMemoryDB()))
+
+    assert "InspectAI test frontend" in client.get("/").text
+    assert "InspectAI test frontend" in client.get("/inspections").text

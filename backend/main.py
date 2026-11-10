@@ -104,6 +104,15 @@ def _rows_for_inspection(rows: list[dict[str, Any]], inspection_id: Any) -> list
     return [row for row in rows if _same_id(row.get("inspection_id"), inspection_id)]
 
 
+def _is_pending_review(review: dict[str, Any]) -> bool:
+    """Include blank labels and the old unreviewed agent placeholder."""
+    reviewer_label = str(review.get("reviewer_label") or "").strip().lower()
+    if not reviewer_label:
+        return True
+    # Older agent versions wrote this placeholder before a human reviewed it.
+    return reviewer_label == "quality_control" and not review.get("reviewed_at")
+
+
 def _relative_asset_path(stored_path: str, marker: tuple[str, ...]) -> Path:
     """Extract a relative asset path and reject traversal or outside absolute paths."""
     normalized = stored_path.replace("\\", "/")
@@ -263,7 +272,7 @@ def create_app(database: Any = None) -> FastAPI:
         reviews = db.list_reviews()
         pending = [
             row for row in reviews
-            if not str(row.get("reviewer_label") or "").strip()
+            if _is_pending_review(row)
         ]
         decisions = {
             name: sum(str(row.get("decision", "")).lower() == name for row in inspections)
@@ -341,10 +350,7 @@ def create_app(database: Any = None) -> FastAPI:
     ):
         rows = db.list_reviews()
         if pending:
-            rows = [
-                row for row in rows
-                if not str(row.get("reviewer_label") or "").strip()
-            ]
+            rows = [row for row in rows if _is_pending_review(row)]
         return rows
 
     @application.post("/api/reviews/{review_id}/resolve")
@@ -396,12 +402,7 @@ def create_app(database: Any = None) -> FastAPI:
     @application.get("/api/reports/{ticket_id}/html", response_class=HTMLResponse)
     def report_html(ticket_id: str, db: Any = Depends(_get_database)):
         report_content = _report_html(_report_data(db, ticket_id))
-        return HTMLResponse(
-            report_content,
-            headers={
-                "Content-Disposition": 'attachment; filename="inspection-report.html"'
-            },
-        )
+        return HTMLResponse(report_content)
 
     def _image_response(inspection_id: str, heatmap: bool, db: Any):
         row = _find_inspection(db, inspection_id)
