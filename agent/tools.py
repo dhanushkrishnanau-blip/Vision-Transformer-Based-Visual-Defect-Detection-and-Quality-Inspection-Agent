@@ -25,7 +25,11 @@ def _heatmap_hot_fraction(path: str | Path | None) -> float | None:
         with Image.open(path) as source:
             image = source.convert("RGB")
             image.thumbnail((256, 256))
-            pixels = list(image.getdata())
+            pixels = list(
+                image.get_flattened_data()
+                if hasattr(image, "get_flattened_data")
+                else image.getdata()
+            )
     except (OSError, ValueError):
         return None
 
@@ -128,7 +132,7 @@ def request_review(
     db: Any,
     inspection_id: Any,
     reason: str,
-    reviewer_label: str = "quality_control",
+    reviewer_label: str = "",
 ) -> tuple[dict[str, Any], bool]:
     """Create a review request only when this inspection has no review yet."""
     existing = db.list_reviews(inspection_id=inspection_id)
