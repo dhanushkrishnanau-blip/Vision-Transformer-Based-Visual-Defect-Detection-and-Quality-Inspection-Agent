@@ -1,0 +1,7 @@
+UNSPECIFIED ANOMALY — CORRECTIVE ACTION
+
+What to check: Keep the item available for inspection and compare its shape, surface, finish, and markings with an approved reference sample. Record the observed location without assuming the defect type.
+
+Who to notify: Notify the line supervisor and quality-control lead for a manual assessment.
+
+Hold or release: Hold the item and any potentially related production until a qualified reviewer identifies the issue. Release only after the reviewer records an acceptable inspection result.

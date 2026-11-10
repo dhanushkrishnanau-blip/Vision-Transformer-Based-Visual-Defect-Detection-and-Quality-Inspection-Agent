@@ -12,3 +12,6 @@ matplotlib
 transformers
 pillow
 scipy
+requests
+python-dotenv
+pytest
