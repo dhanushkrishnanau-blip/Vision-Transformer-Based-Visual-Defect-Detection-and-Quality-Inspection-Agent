@@ -15,3 +15,6 @@ scipy
 requests
 python-dotenv
 pytest
+fastapi
+uvicorn
+httpx
