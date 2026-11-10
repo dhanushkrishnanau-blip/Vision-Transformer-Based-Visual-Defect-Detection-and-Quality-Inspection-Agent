@@ -9,3 +9,6 @@ opencv-python
 scikit-learn
 pandas
 matplotlib
+transformers
+pillow
+scipy
