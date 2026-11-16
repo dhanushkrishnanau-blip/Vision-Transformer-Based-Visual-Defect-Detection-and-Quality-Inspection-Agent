@@ -1,11 +1,33 @@
 """FastAPI endpoint tests using only the in-memory database."""
 
+import struct
+import zlib
+
 import pytest
 from fastapi.testclient import TestClient
 
 from agent.db import InMemoryDB
 import backend.main as backend_main
 from backend.main import create_app
+
+
+def _png_fixture() -> bytes:
+    """Build a minimal valid PNG for isolated image-response tests."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return (
+            struct.pack(">I", len(data))
+            + body
+            + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\xff"))
+        + chunk(b"IEND", b"")
+    )
 
 
 @pytest.fixture
@@ -224,11 +246,23 @@ def test_report_json_and_html_include_inspection_id(client: TestClient) -> None:
     assert "Decision log" in html_report.text
 
 
-def test_image_streams_and_path_traversal_is_rejected(client: TestClient) -> None:
+def test_image_streams_and_path_traversal_is_rejected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    image_root = tmp_path
+    image_path = image_root / "bottle" / "test" / "good" / "000.png"
+    image_path.parent.mkdir(parents=True)
+    image_bytes = _png_fixture()
+    image_path.write_bytes(image_bytes)
+    monkeypatch.setattr(backend_main, "DATA_ROOT", image_root)
+
     original = client.get("/api/images/original/1")
     heatmap = client.get("/api/images/heatmap/1")
     assert original.status_code == 200
     assert original.headers["content-type"] == "image/png"
+    assert original.content == image_bytes
     assert heatmap.status_code == 200
     assert heatmap.headers["content-type"] == "image/png"
 
