@@ -11,6 +11,20 @@ import backend.main as backend_main
 from backend.main import create_app
 
 
+@pytest.fixture(autouse=True)
+def mock_ollama_for_backend_tests(monkeypatch) -> None:
+    from agent import graph
+
+    monkeypatch.setattr(
+        graph,
+        "classify_inspection",
+        lambda metadata: {
+            "defect_type": metadata["rule_defect_type"],
+            "rationale": "Mocked subtype refinement.",
+        },
+    )
+
+
 def _png_fixture() -> bytes:
     """Build a minimal valid PNG for isolated image-response tests."""
 

@@ -2,9 +2,25 @@
 
 from pathlib import Path
 
+import pytest
+
 from agent.db import InMemoryDB
 from app.dashboard_data import build_report_html, seed_offline_db
 from streamlit.testing.v1 import AppTest
+
+
+@pytest.fixture(autouse=True)
+def mock_ollama_for_dashboard_tests(monkeypatch) -> None:
+    from agent import graph
+
+    monkeypatch.setattr(
+        graph,
+        "classify_inspection",
+        lambda metadata: {
+            "defect_type": metadata["rule_defect_type"],
+            "rationale": "Mocked subtype refinement.",
+        },
+    )
 
 
 def test_offline_seed_loads_all_demo_detections() -> None:

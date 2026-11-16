@@ -84,6 +84,8 @@ def classify_defect(
         "severity": severity,
         "confidence": confidence,
         "hot_fraction": hot_fraction,
+        "low_threshold": float(thresholds["low_threshold"]),
+        "high_threshold": high_threshold,
     }
 
 

@@ -6,6 +6,7 @@ from typing import Any, Literal, TypedDict
 from langgraph.graph import END, StateGraph
 
 from agent import tools
+from agent.llm import LLMClientError, classify_inspection
 from agent.tools import (
     classify_defect,
     create_ticket,
@@ -27,8 +28,13 @@ class AgentState(TypedDict, total=False):
     heatmap_path: str
     heatmap_file: str
     defect_type: str
+    rule_defect_type: str
     severity: str
     confidence: str
+    hot_fraction: float | None
+    low_threshold: float
+    high_threshold: float
+    llm_rationale: str
     procedure_text: str
     stage: str
     error: str
@@ -109,7 +115,36 @@ def _classify(state: AgentState) -> dict[str, Any]:
         state["score"],
         state.get("heatmap_file"),
     )
-    return {**result, "stage": "classify_defect"}
+    rule_defect_type = result["defect_type"]
+    classified = {**result, "rule_defect_type": rule_defect_type}
+    if result["confidence"] == "low":
+        return {**classified, "stage": "classify_defect"}
+
+    try:
+        refined = classify_inspection(
+            {
+                "decision": state["decision"],
+                "score": state["score"],
+                "rule_defect_type": rule_defect_type,
+                "rule_severity": result["severity"],
+                "rule_confidence": result["confidence"],
+                "hot_fraction": result["hot_fraction"],
+                "low_threshold": result["low_threshold"],
+                "high_threshold": result["high_threshold"],
+            }
+        )
+    except LLMClientError as error:
+        return {
+            **classified,
+            "error": _error_text(error),
+            "stage": "classify_defect",
+        }
+    return {
+        **classified,
+        "defect_type": refined["defect_type"],
+        "llm_rationale": refined["rationale"],
+        "stage": "classify_defect",
+    }
 
 
 def _get_procedure(state: AgentState) -> dict[str, Any]:
@@ -149,9 +184,14 @@ def _log(state: AgentState) -> dict[str, Any]:
         state["inspection_id"],
         step=state.get("stage", "unknown"),
         tool_name="inspection_agent",
-        input_summary=f"decision={state.get('decision')}; score={state.get('score')}",
+        input_summary=(
+            f"decision={state.get('decision')}; score={state.get('score')}; "
+            f"rule_defect_type={state.get('rule_defect_type', state.get('defect_type', ''))}; "
+            f"severity={state.get('severity', '')}; confidence={state.get('confidence', '')}"
+        ),
         output_summary=(
             f"defect_type={state.get('defect_type', '')}; "
+            f"llm_rationale={state.get('llm_rationale', '')}; "
             f"ticket_created={state.get('ticket_created', False)}; "
             f"review_created={state.get('review_created', False)}"
         ),
@@ -172,7 +212,15 @@ def _handle_error(state: AgentState) -> dict[str, Any]:
                 inspection_id,
                 step=state.get("stage", "unknown"),
                 tool_name="agent_error",
-                input_summary=f"decision={state.get('decision')}",
+                input_summary=(
+                    f"decision={state.get('decision')}; score={state.get('score')}; "
+                    f"rule_defect_type={state.get('rule_defect_type', state.get('defect_type', ''))}; "
+                    f"severity={state.get('severity', '')}; "
+                    f"confidence={state.get('confidence', '')}; "
+                    f"hot_fraction={state.get('hot_fraction')}; "
+                    f"low_threshold={state.get('low_threshold')}; "
+                    f"high_threshold={state.get('high_threshold')}"
+                ),
                 output_summary=message,
             )
     except Exception as error:
