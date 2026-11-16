@@ -8,7 +8,11 @@ import pytest
 from agent import graph, llm
 from agent.db import InMemoryDB
 from agent.graph import run_detection
-from agent.tools import classify_defect
+from agent.tools import THRESHOLDS_PATH, classify_defect
+
+
+def configured_thresholds() -> dict[str, float]:
+    return json.loads(THRESHOLDS_PATH.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -121,6 +125,7 @@ def test_low_confidence_defect_skips_ollama_and_requests_review(monkeypatch) -> 
 def test_eligible_defect_calls_ollama_with_rule_evidence(monkeypatch) -> None:
     calls = use_mocked_ollama(monkeypatch)
     db = InMemoryDB()
+    thresholds = configured_thresholds()
 
     result = run_detection(db, detection("eligible-llm", "defect", 0.8))
 
@@ -136,8 +141,8 @@ def test_eligible_defect_calls_ollama_with_rule_evidence(monkeypatch) -> None:
         "rule_severity": "high",
         "rule_confidence": "medium",
         "hot_fraction": None,
-        "low_threshold": 0.3,
-        "high_threshold": 0.5,
+        "low_threshold": thresholds["low_threshold"],
+        "high_threshold": thresholds["high_threshold"],
     }
     assert result["defect_type"] == "contamination"
     assert db.tickets[0]["defect_type"] == "contamination"
@@ -183,6 +188,7 @@ def test_unsupported_subtype_routes_to_review(monkeypatch, defect_type) -> None:
 def test_malformed_ollama_json_routes_to_review(monkeypatch) -> None:
     use_mocked_ollama(monkeypatch, "not json")
     db = InMemoryDB()
+    thresholds = configured_thresholds()
 
     result = run_detection(db, detection("malformed-llm", "defect"))
 
@@ -199,7 +205,7 @@ def test_malformed_ollama_json_routes_to_review(monkeypatch) -> None:
     assert "decision=defect; score=0.8" in error_input
     assert "rule_defect_type=unspecified_anomaly" in error_input
     assert "severity=high" in error_input
-    assert "high_threshold=0.5" in error_input
+    assert f"high_threshold={thresholds['high_threshold']}" in error_input
     assert db.tickets == []
 
 
